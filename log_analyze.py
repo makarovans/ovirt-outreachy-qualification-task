@@ -45,7 +45,8 @@ class LogMsg:
             re.compile(r'^qemuMonitorSend:[0-9]+:QEMU_MONITOR_SEND_MSG:mon=0x[0-9a-f]+ msg={.+}\nfd=[\-0-9]'),
         ],
         'virFirewallApplyRule': [
-            re.compile(r"^virFirewallApplyRule:[0-9]+:Applying rule '.*'$"),
+            re.compile(r"^virFirewallApplyRule:[0-9]+:Applying rule '.*(.*\n)*'$"),
+            re.compile(r"^virFirewallApplyRule:[0-9]+:Invoking query 0x[0-9a-f]+ with '.*(.*\n)*'$"),
         ],
         'virDBusCall': [
             re.compile(r"^virDBusCall:[0-9]+:DBUS_METHOD_CALL:'[a-zA-Z0-9\.]+' on '[a-zA-Z0-9/]+' at '[a-zA-Z0-9\.]+'$"),
@@ -82,7 +83,94 @@ class LogMsg:
         'virThreadJobSet': [
             re.compile(r'^virThreadJobSet:[0-9]+:Thread [0-9]+ \(virNetServerHandleJob\) is now running job [a-zA-Z0-9]+$'),
         ],
-
+        'virDomainDispose': [
+            re.compile(r'^virDomainDispose:[0-9]+:release domain 0x[0-9a-f]+ [a-zA-Z0-9]+ [a-f0-9\-]+$'),
+        ],
+        'virFileClose': [
+            re.compile(r'^virFileClose:[0-9]+:Closed fd [1-9][0-9]*\n{0,1}\'{0,1}$'),
+        ],
+        'virCgroupGetValueStr': [
+            re.compile(r'^virCgroupGetValueStr:[0-9]+:Get value [/\\a-zA-Z0-9,\-\._]+$'),
+        ],
+        'qemuDomainObjExitMonitorInternal': [
+            re.compile(r'^qemuDomainObjExitMonitorInternal:[0-9]+:Exited monitor \(mon=0x[0-9a-f]+ vm=0x[0-9a-f]+ name=[a-zA-Z0-9]+\)$'),
+        ],
+        'qemuDomainObjEnterMonitorInternal': [
+            re.compile(r'^qemuDomainObjEnterMonitorInternal:[0-9]+:Entering monitor \(mon=0x[0-9a-f]+ vm=0x[0-9a-f]+ name=[a-zA-Z0-9]+\)$'),
+        ],
+        'qemuMonitorBlockStatsUpdateCapacity': [
+            re.compile(r'^qemuMonitorBlockStatsUpdateCapacity:[0-9]+:stats=0x[0-9a-f]+, backing=0$'),
+            re.compile(r'^qemuMonitorBlockStatsUpdateCapacity:[0-9]+:mon:0x[0-9a-f]+ vm:0x[0-9a-f]+ json:1 fd:[1-9][0-9]*$'),
+        ],
+        'qemuMonitorGetAllBlockStatsInfo': [
+            re.compile(r'^qemuMonitorGetAllBlockStatsInfo:[0-9]+:ret_stats=0x[0-9a-f]+, backing=0$'),
+            re.compile(r'^qemuMonitorGetAllBlockStatsInfo:[0-9]+:mon:0x[0-9a-f]+ vm:0x[0-9a-f]+ json:1 fd:[1-9][0-9]*$'),
+        ],
+        'virConnectSupportsFeature': [
+            re.compile(r'^virConnectSupportsFeature:[0-9]+:conn=0x[0-9a-f]+, feature=[0-9]+$'),
+        ],
+        'qemuMonitorGetBlockIoThrottle': [
+            re.compile(r'^qemuMonitorGetBlockIoThrottle:[0-9]+:device=0x[0-9a-f]+, reply=0x[0-9a-f]+$'),
+            re.compile(r'^qemuMonitorGetBlockIoThrottle:[0-9]+:mon:0x[0-9a-f]+ vm:0x[0-9a-f]+ json:1 fd:[1-9][0-9]*$'),
+        ],
+        'qemuGetProcessInfo': [
+            re.compile(r'^qemuGetProcessInfo:[0-9]+:Got status for [0-9]+/[0-9]+ user=[0-9]+ sys=[0-9]+ cpu=[0-9]+ rss=[0-9]+$'),
+        ],
+        'virDomainFree': [
+            re.compile(r'^virDomainFree:[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\)$'),
+        ],
+        'virDomainGetBlockIoTune': [
+            re.compile(r'^virDomainGetBlockIoTune:[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), disk=sda, params=(\(nil\)|0x[0-9a-f]+), nparams=[0-9]+, flags=[0-9]+$'),
+        ],
+        'virDomainGetMetadata': [
+            re.compile(r'^virDomainGetMetadata:[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), type=[0-9]+, uri=\'http://[a-z0-9\./]+\', flags=[0-9]+$'),
+        ],
+        'virNodeGetMemoryStats': [
+            re.compile(r'^virNodeGetMemoryStats:[0-9]+:conn=0x[0-9a-f]+, cellNum=0, params=(\(nil\)|0x[0-9a-f]+), nparams=[0-9]+, flags=[0-9]+$'),
+        ],
+        'virConnectGetAllDomainStats': [
+            re.compile(r'^virConnectGetAllDomainStats:[0-9]+:conn=0x[0-9a-f]+, stats=0x0, retStats=0x[0-9a-f]+, flags=0x0$'),
+        ],
+        'virDomainGetControlInfo': [
+            re.compile(
+                r'^virDomainGetControlInfo:[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), info=0x[0-9a-f]+, flags=[0-9]+$'),
+        ],
+        'virNodeDeviceDispose': [
+            re.compile(r'^virNodeDeviceDispose:[0-9]+:release dev 0x[0-9a-f]+ [a-zA-Z0-9_]+$'),
+        ],
+        'virCgroupDetect': [
+            re.compile(r'^virCgroupDetect:[0-9]+:group=0x[0-9a-f]+ controllers=(-1|[0-9]+) path= parent=\(nil\)$'),
+            re.compile(r'^virCgroupDetect:[0-9]+:Auto-detecting controllers$'),
+            re.compile(r'^virCgroupDetect:[0-9]+:Controller \'(name=){0,1}[a-z_]+\' present=yes$'),
+            re.compile(r'^virCgroupDetect:[0-9]+:Detected mount/mapping (0:cpu|1:cpuacct) at [/a-z,]+ in [0-9a-zA-Z\.\\/\-]+ for pid [0-9]+$'),
+        ],
+        'virAccessManagerCheckNodeDevice': [
+            re.compile(r'^virAccessManagerCheckNodeDevice:[0-9]+:manager=0x[0-9a-f]+\(name=(stack|none)\) driver=QEMU nodedev=0x[0-9a-f]+ perm=[0-1]$'),
+        ],
+        'virNodeDeviceLookupByName': [
+            re.compile(r'^virNodeDeviceLookupByName:[0-9]+:conn=0x[0-9a-f]+, name=[a-zA-Z0-9_]+$'),
+        ],
+        'virCgroupMakeGroup': [
+            re.compile(r'^virCgroupMakeGroup:[0-9]+:Make group [/,a-zA-Z0-9\.\\\-_]+$'),
+            re.compile(r'^virCgroupMakeGroup:[0-9]+:Make controller [/,a-zA-Z0-9\.\\\-_]+$'),
+            re.compile(r'^virCgroupMakeGroup:[0-9]+:Done making controllers for group$'),
+        ],
+        'virCommandRunAsync': [
+            re.compile(r'^virCommandRunAsync:[0-9]+:About to run .+$'),
+            re.compile(r'^virCommandRunAsync:[0-9]+:Command result 0, with PID [0-9]+$'),
+        ],
+        'virCommandRun': [
+            re.compile(r'^virCommandRun:[0-9]+:Result (exit ){0,1}status 0, stdout:\'.*\' stderr:\'.*(\'){0,1}$', re.DOTALL),
+        ],
+        'virNodeDeviceGetXMLDesc': [
+            re.compile(r'^virNodeDeviceGetXMLDesc:[0-9]+:dev=0x[0-9a-f]+, conn=0x[0-9a-f]+, flags=[0-9]+$'),
+        ],
+        'virDomainGetInfo': [
+            re.compile(r'^virDomainGetInfo:[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), info=0x[0-9a-f]+$'),
+        ],
+        'virNodeGetCPUMap': [
+            re.compile(r'^virNodeGetCPUMap:[0-9]+:conn=0x[0-9a-f]+, cpumap=\(nil\), online=\(nil\), flags=0$'),
+        ],
     }
 
     error_regex = [
@@ -95,6 +183,7 @@ class LogMsg:
         re.compile(r"\"[a-zA-Z_]*failed[a-zA-Z_]*\":[-1-9]+", re.IGNORECASE),
         re.compile(r"\"[a-zA-Z_]*failed[a-zA-Z_]*\":true", re.IGNORECASE),
         re.compile(r"fail", re.IGNORECASE),
+        re.compile(r"fatal", re.IGNORECASE),
     ]
 
     def __init__(self):
@@ -187,6 +276,7 @@ class LogStorage(object):
     def __init__(self, length):
         self.lock = threading.Lock()
         self.logs = []
+        self.length = length
         self.bar = ProgressBar(max_value=length)
 
     def update(self, log):
@@ -194,6 +284,8 @@ class LogStorage(object):
         try:
             self.logs.extend(log)
             self.bar.update(len(self.logs))
+            if len(self.logs) == self.length:
+                self.bar.finish()
         finally:
             self.lock.release()
 
@@ -215,7 +307,8 @@ class LogParserThread(threading.Thread):
 
 def describe(df):
     # Errors #
-    print('Error like messages:')
+
+    print(TextColor.BOLD, 'Error like messages:', TextColor.END)
     df_error = df[df.error_contains]
     for msg_type in df_error.drop_duplicates('msg_type').msg_type:
         print(
@@ -227,9 +320,32 @@ def describe(df):
         print('Example', ':', random.choice(df_error_msg_type.msg.tolist()).to_error_str())
         for thread in df_error_msg_type.drop_duplicates('thread').thread:
             print("Thread =", thread, "Original line ids = [", end='')
-            for line_index in df_error_msg_type[df.thread == thread].line_index:
+            for line_index in df_error_msg_type[df_error_msg_type.thread == thread].line_index:
                 print(line_index, end=',')
             print(']')
+
+    # Mismatch usual case #
+
+    print(TextColor.BOLD, 'Messages that mismatch usual case:', TextColor.END)
+    df_unusual = df.query("suspicious_level == 'Mismatch normal' and error_contains == False")
+    for msg_type in df_unusual.drop_duplicates('msg_type').msg_type:
+        print(
+            'Message',
+            TextColor.BOLD + TextColor.BLUE + repr(msg_type) + TextColor.END,
+            ':'
+        )
+        df_unusual_msg_type = df_unusual[df_unusual.msg_type == msg_type]
+        print('Example', ':', random.choice(df_unusual_msg_type.msg.tolist()).to_error_str())
+        for thread in df_unusual_msg_type.drop_duplicates('thread').thread:
+            print("Thread =", thread, "Original line ids = [", end='')
+            for line_index in df_unusual_msg_type[df_unusual_msg_type.thread == thread].line_index:
+                print(line_index, end=',')
+            print(']')
+
+    # Unique messages #
+
+    # Datetime analysis #
+
     # for thread in df.drop_duplicates('thread').thread:
     #     print('Thread', thread, ":")
     #     df_thread = df.query('thread == "{}"'.format(thread))
@@ -296,10 +412,12 @@ def main():
         for thread in threads:
             thread.join()
         logs = log_storage.get()
+        del log_storage
     del process_lines
 
     # Store all data in pandas.DataFrame #
 
+    print('Creating DataFrame ...')
     df = pd.DataFrame()
     df['line_index'] = [log.line_index for log in logs]
     df['date'] = [log.date for log in logs]
@@ -310,6 +428,7 @@ def main():
     df['suspicious_level'] = [log.msg.suspicious_level for log in logs]
     df['error_contains'] = [log.msg.error_contains for log in logs]
     del logs
+    print('Done')
 
     describe(df)
 
