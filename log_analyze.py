@@ -387,8 +387,43 @@ def describe(args, logs, df_datetime_analysis):
         if printed_occurrences == 4:
             print()
             printed_occurrences = 0
+    if printed_occurrences > 0:
+        print()
 
     # Datetime analysis #
+
+    print(TextColor.BOLD + TextColor.PURPLE + 'Slow log [per thread] line indices:' + TextColor.END)
+
+    df_datetime_analysis.sort_values('date', inplace=True)
+    quantiles = []
+    for thread, thread_group in df_datetime_analysis.groupby('thread'):
+        date_diff = numpy.diff(thread_group.date)
+        quantiles.append(numpy.percentile(date_diff, 99))
+    median_quantiles = numpy.median(numpy.nonzero(quantiles))
+    min_quantiles = numpy.min(numpy.nonzero(quantiles))
+
+    (greater_median_quantiles, greater_min_quantiles) = (0, 0)
+    slow_logs, slow_logs_time = (None, None)
+    for thread, thread_group in df_datetime_analysis.groupby('thread'):
+        date_diff = numpy.diff(thread_group.date)
+        slow_lines = thread_group.line_index[1:][date_diff > min_quantiles]
+        slow_date_diff = date_diff[date_diff > min_quantiles]
+        greater_median_quantiles += numpy.count_nonzero(date_diff > median_quantiles)
+        greater_min_quantiles += numpy.count_nonzero(date_diff > min_quantiles)
+        if slow_logs_time is None:
+            slow_logs_time = slow_date_diff
+            slow_logs = slow_lines
+        else:
+            slow_logs_time = numpy.concatenate([slow_logs_time, slow_date_diff])
+            slow_logs = numpy.concatenate([slow_logs, slow_lines])
+
+    ids = numpy.argsort(slow_logs_time)[::-1]
+    for i, (line_index, sec) in enumerate(zip(slow_logs[ids].tolist(), slow_logs_time[ids].tolist())):
+        if i >= 10 and not args.full:
+            print(end='...')
+            break
+        print("{}:".format(line_index) + TextColor.BOLD + "{:.2f}s".format(sec) + TextColor.END, end='; ')
+    print()
 
 
 def read_log(args):
