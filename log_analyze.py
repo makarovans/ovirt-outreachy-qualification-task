@@ -2,16 +2,17 @@
 import os
 import re
 import numpy
-import random
 import pandas as pd
 import multiprocessing
 from datetime import datetime
 import pytz
 import argparse
 from progressbar import ProgressBar
+from collections import OrderedDict
 
 
 class TextColor:
+    PURPLE = '\033[95m'
     BLUE = '\033[94m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
@@ -54,17 +55,17 @@ class LogMsg:
             re.compile(r"^[0-9]+:Invoking query 0x[0-9a-f]+ with '.*(.*\n)*'$"),
         ],
         'virDBusCall': [
-            re.compile(r"^[0-9]+:DBUS_METHOD_CALL:'[a-zA-Z0-9\.]+' on '[a-zA-Z0-9/]+' at '[a-zA-Z0-9\.]+'$"),
-            re.compile(r"^[0-9]+:DBUS_METHOD_REPLY:'[a-zA-Z0-9\.]+' on '[a-zA-Z0-9/]+' at '[a-zA-Z0-9\.]+'$"),
+            re.compile(r"^[0-9]+:DBUS_METHOD_CALL:'[a-zA-Z0-9.]+' on '[a-zA-Z0-9/]+' at '[a-zA-Z0-9.]+'$"),
+            re.compile(r"^[0-9]+:DBUS_METHOD_REPLY:'[a-zA-Z0-9.]+' on '[a-zA-Z0-9/]+' at '[a-zA-Z0-9.]+'$"),
         ],
         'virFirewallApplyGroup': [
             re.compile(r"^[0-9]+:Starting transaction for firewall=0x[0-9a-f]+ group=0x[0-9a-f]+ flags=[0-1]$"),
         ],
         'virSecuritySELinuxSetFileconHelper': [
-            re.compile(r"^[0-9]+:Setting SELinux context on '[a-zA-Z0-9\.\-/]+' to '[a-z_:0-9,]+'$"),
+            re.compile(r"^[0-9]+:Setting SELinux context on '[a-zA-Z0-9.\-/]+' to '[a-z_:0-9,]+'$"),
         ],
         'virSecurityDACSetOwnershipInternal': [
-            re.compile(r"^[0-9]+:Setting DAC user and group on '[a-zA-Z0-9\.\-/]+' to '[:0-9]+'$"),
+            re.compile(r"^[0-9]+:Setting DAC user and group on '[a-zA-Z0-9.\-/]+' to '[:0-9]+'$"),
         ],
         'virNetDevProbeVnetHdr': [
             re.compile(r'^[0-9]+:Enabling IFF_VNET_HDR$'),
@@ -92,10 +93,10 @@ class LogMsg:
             re.compile(r'^[0-9]+:release domain 0x[0-9a-f]+ [a-zA-Z0-9]+ [a-f0-9\-]+$'),
         ],
         'virFileClose': [
-            re.compile(r'^[0-9]+:Closed fd [1-9][0-9]*\n{0,1}\'{0,1}$'),
+            re.compile(r'^[0-9]+:Closed fd [1-9][0-9]*\n?\'?$'),
         ],
         'virCgroupGetValueStr': [
-            re.compile(r'^[0-9]+:Get value [/\\a-zA-Z0-9,\-\._]+$'),
+            re.compile(r'^[0-9]+:Get value [/\\a-zA-Z0-9,\-._]+$'),
         ],
         'qemuDomainObjExitMonitorInternal': [
             re.compile(r'^[0-9]+:Exited monitor \(mon=0x[0-9a-f]+ vm=0x[0-9a-f]+ name=[a-zA-Z0-9]+\)$'),
@@ -128,7 +129,7 @@ class LogMsg:
             re.compile(r'^[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), disk=sda, params=(\(nil\)|0x[0-9a-f]+), nparams=[0-9]+, flags=[0-9]+$'),
         ],
         'virDomainGetMetadata': [
-            re.compile(r'^[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), type=[0-9]+, uri=\'http://[a-z0-9\./]+\', flags=[0-9]+$'),
+            re.compile(r'^[0-9]+:dom=0x[0-9a-f]+, \(VM:name=[a-zA-Z0-9]+, uuid=[a-f0-9\-]+\), type=[0-9]+, uri=\'http://[a-z0-9./]+\', flags=[0-9]+$'),
         ],
         'virNodeGetMemoryStats': [
             re.compile(r'^[0-9]+:conn=0x[0-9a-f]+, cellNum=0, params=(\(nil\)|0x[0-9a-f]+), nparams=[0-9]+, flags=[0-9]+$'),
@@ -146,7 +147,7 @@ class LogMsg:
             re.compile(r'^[0-9]+:group=0x[0-9a-f]+ controllers=(-1|[0-9]+) path= parent=\(nil\)$'),
             re.compile(r'^[0-9]+:Auto-detecting controllers$'),
             re.compile(r'^[0-9]+:Controller \'(name=){0,1}[a-z_]+\' present=yes$'),
-            re.compile(r'^[0-9]+:Detected mount/mapping (0:cpu|1:cpuacct) at [/a-z,]+ in [0-9a-zA-Z\.\\/\-]+ for pid [0-9]+$'),
+            re.compile(r'^[0-9]+:Detected mount/mapping (0:cpu|1:cpuacct) at [/a-z,]+ in [0-9a-zA-Z.\\/\-]+ for pid [0-9]+$'),
         ],
         'virAccessManagerCheckNodeDevice': [
             re.compile(r'^[0-9]+:manager=0x[0-9a-f]+\(name=(stack|none)\) driver=QEMU nodedev=0x[0-9a-f]+ perm=[0-1]$'),
@@ -155,8 +156,8 @@ class LogMsg:
             re.compile(r'^[0-9]+:conn=0x[0-9a-f]+, name=[a-zA-Z0-9_]+$'),
         ],
         'virCgroupMakeGroup': [
-            re.compile(r'^[0-9]+:Make group [/,a-zA-Z0-9\.\\\-_]+$'),
-            re.compile(r'^[0-9]+:Make controller [/,a-zA-Z0-9\.\\\-_]+$'),
+            re.compile(r'^[0-9]+:Make group [/,a-zA-Z0-9.\\\-_]+$'),
+            re.compile(r'^[0-9]+:Make controller [/,a-zA-Z0-9.\\\-_]+$'),
             re.compile(r'^[0-9]+:Done making controllers for group$'),
         ],
         'virCommandRunAsync': [
@@ -164,7 +165,7 @@ class LogMsg:
             re.compile(r'^[0-9]+:Command result 0, with PID [0-9]+$'),
         ],
         'virCommandRun': [
-            re.compile(r'^[0-9]+:Result (exit ){0,1}status 0, stdout:\'.*\' stderr:\'.*(\'){0,1}$', re.DOTALL),
+            re.compile(r'^[0-9]+:Result (exit )?status 0, stdout:\'.*\' stderr:\'.*(\')?$', re.DOTALL),
         ],
         'virNodeDeviceGetXMLDesc': [
             re.compile(r'^[0-9]+:dev=0x[0-9a-f]+, conn=0x[0-9a-f]+, flags=[0-9]+$'),
@@ -330,7 +331,7 @@ class LogParserProcess(multiprocessing.Process):
 def describe(args, logs, df_datetime_analysis):
     # Errors #
 
-    print(TextColor.BOLD, 'Error like messages:', TextColor.END)
+    print(TextColor.BOLD + TextColor.PURPLE + 'Error like messages:' + TextColor.END)
     for msg_type in [key for key in sorted(logs.keys()) if 'error' in logs[key]]:
         print(
             'Message',
@@ -348,7 +349,7 @@ def describe(args, logs, df_datetime_analysis):
 
     # Mismatch usual case #
 
-    print(TextColor.BOLD, 'Messages that mismatch usual case:', TextColor.END)
+    print(TextColor.BOLD + TextColor.PURPLE + 'Messages that mismatch usual case:' + TextColor.END)
     for msg_type in [key for key in sorted(logs.keys()) if 'mismatch' in logs[key]]:
         print(
             'Message',
@@ -366,17 +367,28 @@ def describe(args, logs, df_datetime_analysis):
 
     # Unique messages #
 
-    # Datetime analysis #
+    print(TextColor.BOLD + TextColor.PURPLE + 'Rare Messages:' + TextColor.END)
 
-    # for thread in df.drop_duplicates('thread').thread:
-    #     print('Thread', thread, ":")
-    #     df_thread = df.query('thread == "{}"'.format(thread))
-    #     # for dt, level, msg in zip(df_thread.date, df_thread.level, df_thread.msg):
-    #     print(
-    #         'cnt = ', df_thread.shape[0],
-    #         'suspicious = ', df_thread.query("suspicious_level == 'Mismatch normal'").shape[0],
-    #         'error_contains = ', df_thread.query("level == 'debug' and error_contains == True").shape[0]
-    #     )
+    logs_sorted = OrderedDict(sorted(logs.items(), key=lambda x: (x[1]['lines_count'], x[0])))
+    line_counts = numpy.array([item['lines_count'] for _, item in logs_sorted.items()])
+    line_masses = numpy.cumsum(line_counts / numpy.sum(line_counts))
+    (printed_occurrences, printed_value) = (0, None)
+    for msg_type, mass_val in zip(logs_sorted.keys(), line_masses.tolist()):
+        if logs[msg_type]['lines_count'] != printed_value and mass_val > 0.001:
+            break
+        print(
+            TextColor.BOLD + TextColor.BLUE + repr(msg_type) + TextColor.END,
+            ':',
+            logs[msg_type]['lines_count'],
+            end=','
+        )
+        printed_value = logs[msg_type]['lines_count']
+        printed_occurrences += 1
+        if printed_occurrences == 4:
+            print()
+            printed_occurrences = 0
+
+    # Datetime analysis #
 
 
 def read_log(args):
@@ -445,6 +457,7 @@ def read_log(args):
         results_queue.close()
 
     bar.finish()
+    print('Done')
 
     return logs
 
