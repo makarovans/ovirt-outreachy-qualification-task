@@ -11,6 +11,47 @@ from progressbar import ProgressBar
 from collections import OrderedDict
 
 
+TIME_REGEX = re.compile(r'^\d{4}-[0-1]\d-[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d.\d{3}[+\-][0-2]\d[0-5]\d$')
+DATE_EPOCH = datetime(1970, 1, 1, tzinfo=pytz.UTC)
+
+
+class FileReader:
+    @staticmethod
+    def get_lines_count(log_filename):
+        with open(log_filename) as f:
+            for i, l in enumerate(f):
+                pass
+        return i + 1
+
+    @staticmethod
+    def read_log(log_filename, line_index, parser):
+        with open(log_filename, "r") as logfile:
+            line_to_parse = None
+            if line_index > 1:
+                for i, l in enumerate(logfile):
+                    if i == line_index - 2:
+                        break
+            for line in logfile:
+                if line_to_parse is None:
+                    line_to_parse = line
+                    continue
+                if TIME_REGEX.match(line[:28]):
+                    return parser.parse(line_to_parse, line_index)
+                line_to_parse += '\n' + line
+        return None
+
+    @staticmethod
+    def read_line(log_filename, line_index):
+        with open(log_filename, "r") as logfile:
+            if line_index > 0:
+                for i, l in enumerate(logfile):
+                    if i == line_index - 1:
+                        break
+            for line in logfile:
+                return line
+        return None
+
+
 class TextColor:
     PURPLE = '\033[95m'
     BLUE = '\033[94m'
@@ -21,10 +62,6 @@ class TextColor:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
-
-
-TIME_REGEX = re.compile(r'^\d{4}-[0-1]\d-[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d.\d{3}[+\-][0-2]\d[0-5]\d$')
-DATE_EPOCH = datetime(1970, 1, 1, tzinfo=pytz.UTC)
 
 
 class LogMsg:
@@ -345,20 +382,23 @@ class LogParserProcess(multiprocessing.Process):
         with open(self.logfile, "r") as logfile:
             (last_line, last_ind) = (None, None)
             last_progress = 0
-            for i, line in enumerate(logfile.readlines()[self.start_id:self.end_id]):
+            for i, line in enumerate(logfile):
+                if i == self.start_id - 1:
+                    break
+            for i, line in enumerate(logfile):
+                if i == self.end_id - self.start_id:
+                    break
                 if i - last_progress >= 1000:
                     self.progress_queue.put(i - last_progress)
                     last_progress = i
                 if TIME_REGEX.match(line[:28]):
                     if last_line is not None:
                         LogParserProcess.update_stats(self.logs, self.parser.parse(last_line, last_ind))
-                        # self.results_queue.put(self.parser.parse(last_line, last_ind))
                     (last_line, last_ind) = (line, self.start_id + i + 1)
                 else:
                     last_line += '\n' + line
             if last_line is not None:
                 LogParserProcess.update_stats(self.logs, self.parser.parse(last_line, last_ind))
-                # self.results_queue.put(self.parser.parse(last_line, last_ind))
             self.progress_queue.put(self.end_id - self.start_id - last_progress)
         self.progress_queue.put(None)
         self.results_queue.put(self.logs)
@@ -484,27 +524,8 @@ def describe(args, logs, df_datetime_analysis):
         prev_line_index_id = numpy.argwhere(line_indices == line_index)[0][0] - 1
         prev_line_index = line_indices[prev_line_index_id]
 
-        with open(args.logfile, "r") as logfile:
-            line_to_parse = None
-            for line in logfile.readlines()[(prev_line_index - 1):]:
-                if line_to_parse is None:
-                    line_to_parse = line
-                    continue
-                if TIME_REGEX.match(line[:28]):
-                    print("Previous line:", parser.parse(line_to_parse, prev_line_index))
-                    break
-                line_to_parse += '\n' + line
-
-        with open(args.logfile, "r") as logfile:
-            line_to_parse = None
-            for line in logfile.readlines()[(line_index-1):]:
-                if line_to_parse is None:
-                    line_to_parse = line
-                    continue
-                if TIME_REGEX.match(line[:28]):
-                    print("Current  line:", parser.parse(line_to_parse, line_index))
-                    break
-                line_to_parse += '\n' + line
+        print("Previous line:", FileReader.read_log(args.logfile, prev_line_index, parser))
+        print("Current  line:", FileReader.read_log(args.logfile, line_index, parser))
     print()
 
 
@@ -521,15 +542,14 @@ def read_log(args):
         '__thread': [],
     }
 
-    with open(args.logfile, "r") as logfile:
-        line_count = len(logfile.readlines())
+    line_count = FileReader.get_lines_count(args.logfile)
     bar = ProgressBar(max_value=line_count)
 
     if args.n_jobs == 1:
         with open(args.logfile, "r") as logfile:
             (last_line, last_ind) = (None, None)
             parser = LogParser()
-            for i, line in enumerate(logfile.readlines()):
+            for i, line in enumerate(logfile):
                 if TIME_REGEX.match(line[:28]):
                     if last_line is not None:
                         LogParserProcess.update_stats(logs, parser.parse(last_line, last_ind))
@@ -546,17 +566,15 @@ def read_log(args):
 
         # Spawn child processes #
 
-        with open(args.logfile, "r") as logfile:
-            lines = logfile.readlines()
-            splits = [0]
-            for i in range(args.n_jobs):
-                splits.append(splits[i] + (line_count - splits[i]) // (args.n_jobs - i))
-                while splits[i + 1] < line_count:
-                    if TIME_REGEX.match(lines[splits[i + 1]][:28]):
-                        break
-                    splits[i + 1] += 1
-                workers.append(LogParserProcess(args.logfile, splits[i], splits[i + 1], results_queue, progress_queue))
-                workers[-1].start()
+        splits = [0]
+        for i in range(args.n_jobs):
+            splits.append(splits[i] + (line_count - splits[i]) // (args.n_jobs - i))
+            while splits[i + 1] < line_count:
+                if TIME_REGEX.match(FileReader.read_line(args.logfile, splits[i + 1])[:28]):
+                    break
+                splits[i + 1] += 1
+            workers.append(LogParserProcess(args.logfile, splits[i], splits[i + 1], results_queue, progress_queue))
+            workers[-1].start()
 
         # Collect data from child processes #
 
