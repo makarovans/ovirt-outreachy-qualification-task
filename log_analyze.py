@@ -284,12 +284,18 @@ class LogParser:
 
 
 class LogParserProcess(multiprocessing.Process):
-    def __init__(self, logfile, start_id, end_id, results_queue):
+    def __init__(self, logfile, start_id, end_id, results_queue, progress_queue):
         super(LogParserProcess, self).__init__()
         self.logfile = logfile
         self.start_id = start_id
         self.end_id = end_id
         self.results_queue = results_queue
+        self.progress_queue = progress_queue
+        self.logs = {
+            '__datetime': [],
+            '__line_index': [],
+            '__thread': [],
+        }
         self.parser = LogParser()
 
     @staticmethod
@@ -313,19 +319,49 @@ class LogParserProcess(multiprocessing.Process):
         logs['__line_index'].append(log.line_index)
         logs['__thread'].append(log.thread)
 
+    @staticmethod
+    def merge_logs(log_a, log_b):
+        for msg_type in log_b:
+            if msg_type in ['__datetime', '__line_index', '__thread']:
+                log_a[msg_type].extend(log_b[msg_type])
+                continue
+            if msg_type not in log_a:
+                log_a[msg_type] = log_b[msg_type]
+                continue
+            log_a[msg_type]['lines_count'] += log_b[msg_type]['lines_count']
+            if 'error_lines' in log_b[msg_type]:
+                if 'error_lines' in log_a[msg_type]:
+                    log_a[msg_type]['error_lines'].extend(log_b[msg_type]['error_lines'])
+                else:
+                    log_a[msg_type]['error_lines'] = log_b[msg_type]['error_lines']
+            if 'mismatch_lines' in log_b[msg_type]:
+                if 'mismatch_lines' in log_a[msg_type]:
+                    log_a[msg_type]['mismatch_lines'].extend(log_b[msg_type]['mismatch_lines'])
+                else:
+                    log_a[msg_type]['mismatch_lines'] = log_b[msg_type]['mismatch_lines']
+        return log_a
+
     def run(self):
         with open(self.logfile, "r") as logfile:
             (last_line, last_ind) = (None, None)
+            last_progress = 0
             for i, line in enumerate(logfile.readlines()[self.start_id:self.end_id]):
+                if i - last_progress >= 1000:
+                    self.progress_queue.put(i - last_progress)
+                    last_progress = i
                 if TIME_REGEX.match(line[:28]):
                     if last_line is not None:
-                        self.results_queue.put(self.parser.parse(last_line, last_ind))
+                        LogParserProcess.update_stats(self.logs, self.parser.parse(last_line, last_ind))
+                        # self.results_queue.put(self.parser.parse(last_line, last_ind))
                     (last_line, last_ind) = (line, self.start_id + i + 1)
                 else:
                     last_line += '\n' + line
             if last_line is not None:
-                self.results_queue.put(self.parser.parse(last_line, last_ind))
-        self.results_queue.put(None)
+                LogParserProcess.update_stats(self.logs, self.parser.parse(last_line, last_ind))
+                # self.results_queue.put(self.parser.parse(last_line, last_ind))
+            self.progress_queue.put(self.end_id - self.start_id - last_progress)
+        self.progress_queue.put(None)
+        self.results_queue.put(self.logs)
 
 
 def describe(args, logs, df_datetime_analysis):
@@ -459,6 +495,7 @@ def read_log(args):
                 LogParserProcess.update_stats(logs, parser.parse(last_line, last_ind))
     else:
         results_queue = multiprocessing.Queue()
+        progress_queue = multiprocessing.Queue()
         workers = []
 
         # Spawn child processes #
@@ -472,7 +509,7 @@ def read_log(args):
                     if TIME_REGEX.match(lines[splits[i + 1]][:28]):
                         break
                     splits[i + 1] += 1
-                workers.append(LogParserProcess(args.logfile, splits[i], splits[i + 1], results_queue))
+                workers.append(LogParserProcess(args.logfile, splits[i], splits[i + 1], results_queue, progress_queue))
                 workers[-1].start()
 
         # Collect data from child processes #
@@ -480,15 +517,18 @@ def read_log(args):
         n_jobs = len(workers)
         n = 0
         while n_jobs > 0:
-            log = results_queue.get()
-            n += 1
-            if log is None:
+            add_n = progress_queue.get()
+            if add_n is None:
                 n_jobs -= 1
-            else:
-                LogParserProcess.update_stats(logs, log)
-                bar.update(n)
-        bar.update(line_count)
+                continue
+            n += add_n
+            bar.update(n)
 
+        for i in range(len(workers)):
+            log = results_queue.get()
+            logs = LogParserProcess.merge_logs(logs, log)
+
+        progress_queue.close()
         results_queue.close()
 
     bar.finish()
