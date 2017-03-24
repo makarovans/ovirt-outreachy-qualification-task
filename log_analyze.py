@@ -17,6 +17,7 @@ class TextColor:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     RED = '\033[91m'
+    GRAY = '\033[37m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
@@ -212,13 +213,10 @@ class LogMsg:
                 self.error_contains = True
                 break
 
-        if not self.error_contains and self.suspicious_level == 'Good':
-            self.msg = ''
-
         return self
 
     def to_error_str(self):
-        result = ''
+        result = TextColor.BOLD + TextColor.BLUE + self.type + TextColor.END + ': '
         # Find error places #
         error_pos = []
         for error_regex in LogMsg.error_regex:
@@ -272,7 +270,9 @@ class CommonLogItem:
         return self
 
     def __str__(self):
-        return TextColor.BOLD + TextColor.GREEN + str(self.thread) + TextColor.END + ' ' + self.msg.to_error_str()
+        return TextColor.BOLD + TextColor.GRAY + datetime.utcfromtimestamp(self.date).strftime("%Y-%m-%d %H:%M:%S.%f%z") + TextColor.END + \
+            ': ' + TextColor.BOLD + TextColor.GREEN + str(self.thread) + TextColor.END + \
+            ': ' + self.msg.to_error_str()
 
 
 class LogParser:
@@ -367,7 +367,10 @@ class LogParserProcess(multiprocessing.Process):
 def describe(args, logs, df_datetime_analysis):
     # Errors #
 
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
     print(TextColor.BOLD + TextColor.PURPLE + 'Error like messages:' + TextColor.END)
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
+
     for msg_type in [key for key in sorted(logs.keys()) if 'error' in logs[key]]:
         print(
             'Message',
@@ -382,10 +385,14 @@ def describe(args, logs, df_datetime_analysis):
                 break
             print(line_index, end=',')
         print(']')
+    print()
 
     # Mismatch usual case #
 
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
     print(TextColor.BOLD + TextColor.PURPLE + 'Messages that mismatch usual case:' + TextColor.END)
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
+
     for msg_type in [key for key in sorted(logs.keys()) if 'mismatch' in logs[key]]:
         print(
             'Message',
@@ -400,10 +407,13 @@ def describe(args, logs, df_datetime_analysis):
                 break
             print(line_index, end=',')
         print(']')
+    print()
 
     # Unique messages #
 
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
     print(TextColor.BOLD + TextColor.PURPLE + 'Rare Messages:' + TextColor.END)
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
 
     logs_sorted = OrderedDict(sorted(logs.items(), key=lambda x: (x[1]['lines_count'], x[0])))
     line_counts = numpy.array([item['lines_count'] for _, item in logs_sorted.items()])
@@ -413,24 +423,30 @@ def describe(args, logs, df_datetime_analysis):
         if logs[msg_type]['lines_count'] != printed_value and mass_val > 0.001:
             break
         print(
-            TextColor.BOLD + TextColor.BLUE + repr(msg_type) + TextColor.END,
+            TextColor.BOLD + TextColor.BLUE + "{:<50}".format(repr(msg_type)) + TextColor.END,
             ':',
-            logs[msg_type]['lines_count'],
-            end=','
+            "{:<3d},".format(logs[msg_type]['lines_count']),
+            end=' '
         )
         printed_value = logs[msg_type]['lines_count']
         printed_occurrences += 1
-        if printed_occurrences == 4:
+        if printed_occurrences == 3:
             print()
             printed_occurrences = 0
     if printed_occurrences > 0:
         print()
+    print()
+
+    del logs
+    del logs_sorted
 
     # Datetime analysis #
 
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
     print(TextColor.BOLD + TextColor.PURPLE + 'Slow log [per thread] line indices:' + TextColor.END)
+    print(TextColor.BOLD + TextColor.PURPLE + '===================================' + TextColor.END)
 
-    df_datetime_analysis.sort_values('date', inplace=True)
+    df_datetime_analysis.sort_values(['date', 'line_index'], inplace=True)
     quantiles = []
     for thread, thread_group in df_datetime_analysis.groupby('thread'):
         date_diff = numpy.diff(thread_group.date)
@@ -453,12 +469,42 @@ def describe(args, logs, df_datetime_analysis):
             slow_logs_time = numpy.concatenate([slow_logs_time, slow_date_diff])
             slow_logs = numpy.concatenate([slow_logs, slow_lines])
 
+    df_datetime_analysis.sort_values(['thread', 'date', 'line_index'], inplace=True)
+    line_indices = df_datetime_analysis.line_index.as_matrix()
+    del df_datetime_analysis
+
     ids = numpy.argsort(slow_logs_time)[::-1]
+    parser = LogParser()
     for i, (line_index, sec) in enumerate(zip(slow_logs[ids].tolist(), slow_logs_time[ids].tolist())):
         if i >= 10 and not args.full:
             print(end='...')
             break
-        print("{}:".format(line_index) + TextColor.BOLD + "{:.2f}s".format(sec) + TextColor.END, end='; ')
+        print(line_index, ':', TextColor.BOLD + "{:.2f}s".format(sec) + TextColor.END)
+
+        prev_line_index_id = numpy.argwhere(line_indices == line_index)[0][0] - 1
+        prev_line_index = line_indices[prev_line_index_id]
+
+        with open(args.logfile, "r") as logfile:
+            line_to_parse = None
+            for line in logfile.readlines()[(prev_line_index - 1):]:
+                if line_to_parse is None:
+                    line_to_parse = line
+                    continue
+                if TIME_REGEX.match(line[:28]):
+                    print("Previous line:", parser.parse(line_to_parse, prev_line_index))
+                    break
+                line_to_parse += '\n' + line
+
+        with open(args.logfile, "r") as logfile:
+            line_to_parse = None
+            for line in logfile.readlines()[(line_index-1):]:
+                if line_to_parse is None:
+                    line_to_parse = line
+                    continue
+                if TIME_REGEX.match(line[:28]):
+                    print("Current  line:", parser.parse(line_to_parse, line_index))
+                    break
+                line_to_parse += '\n' + line
     print()
 
 
