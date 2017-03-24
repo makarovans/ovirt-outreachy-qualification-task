@@ -21,5 +21,5 @@ Some notes:
 
 Run: 
 ```bash
-./log_analyze.py [--n_jobs THREADS] log_file
+./log_analyze.py [--n_jobs THREADS] [--full] log_file
 ```
